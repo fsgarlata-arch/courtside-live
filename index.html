@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Courtside Live</title>
+<meta name="description" content="Calendario, risultati e punteggio live delle partite di basket giovanile.">
+<meta name="theme-color" content="#12204a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Courtside">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <button class="brand" id="brandBtn" type="button" aria-label="Torna alla home">
+      <span id="brandLogo"></span>
+      <span style="min-width:0">
+        <div class="brand-name" id="brandName">Courtside Live</div>
+        <div class="brand-sub" id="brandSub">Basket giovanile · risultati live</div>
+      </span>
+    </button>
+    <span class="conn" id="conn" title="Connessione live" hidden></span>
+    <button class="icon-btn" id="teamBtn" type="button" hidden aria-label="Impostazioni squadra">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+      Squadra
+    </button>
+    <button class="icon-btn" id="loginBtn" type="button" hidden>Segnapunti</button>
+  </div>
+</header>
+
+<main class="wrap" id="app">
+  <div class="skeleton"></div>
+  <div class="skeleton"></div>
+</main>
+<div class="toast" id="toast" hidden></div>
+<div class="cropper" id="cropper" hidden></div>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
