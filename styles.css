@@ -15,6 +15,8 @@
   --board-2: #141a2c;
   --board-fg: #f4f1ea;
   --board-dim: #8a90a6;
+  --court-line: rgba(18,32,74,.2);
+  --court-paint: rgba(226,89,26,.09);
   --led: #ffb020;
   --live: #e0262f;
   --win: #1f8a4c;
@@ -28,7 +30,7 @@
   :root:not([data-theme="light"]) {
     --bg: #0d1222; --plank: #111832; --surface: #161e38; --surface-2: #1c2645;
     --fg: #eef0f6; --muted: #98a0b8; --line: #28335a; --accent: #ff6b2c; --accent-ink: #160a03;
-    --navy: #0a1230; --navy-2: #13204a;
+    --navy: #0a1230; --navy-2: #13204a; --court-line: rgba(220,228,255,.1); --court-paint: rgba(255,107,44,.06);
     --shadow: 0 1px 0 rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
     --win: #3fbf74; --loss: #ff6a57;
     color-scheme: dark;
@@ -37,7 +39,7 @@
 :root[data-theme="dark"] {
   --bg: #0d1222; --plank: #111832; --surface: #161e38; --surface-2: #1c2645;
   --fg: #eef0f6; --muted: #98a0b8; --line: #28335a; --accent: #ff6b2c; --accent-ink: #160a03;
-  --navy: #0a1230; --navy-2: #13204a;
+  --navy: #0a1230; --navy-2: #13204a; --court-line: rgba(220,228,255,.1); --court-paint: rgba(255,107,44,.06);
   --shadow: 0 1px 0 rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
   --win: #3fbf74; --loss: #ff6a57;
   color-scheme: dark;
@@ -235,3 +237,9 @@ h2.sec::after { content: ""; flex: 1; height: 2px; background: var(--line); }
 .code-input { letter-spacing: .4em; font-family: var(--f-num) !important; font-weight: 800; font-size: 26px !important; text-align: center; }
 .team-list { display: grid; gap: 8px; }
 .team-list button { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; text-align: left; font-weight: 700; }
+
+/* NBA court lines drawn behind everything */
+.court { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
+.court * { fill: none; stroke: var(--court-line); stroke-width: 2px; vector-effect: non-scaling-stroke; }
+.court .paint { fill: var(--court-paint); }
+.court .dash { stroke-dasharray: 6 6; }
