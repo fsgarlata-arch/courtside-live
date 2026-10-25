@@ -6,7 +6,8 @@ I genitori aprono un link e seguono la partita **senza registrarsi**. Solo i seg
 ## Stato attuale
 
 - Progetto Supabase **Courtside** (regione Parigi, `ncktmkytappbnqyfsmxt`) creato, schema applicato, `config.js` già compilato.
-- Manca: pubblicare la cartella e impostare l'indirizzo in *Authentication → URL Configuration* (vedi sotto).
+- Pubblicata su GitHub Pages: **https://fsgarlata-arch.github.io/courtside-live/** (repository `fsgarlata-arch/courtside-live`, ramo `main`). Ogni `git push` aggiorna il sito in circa un minuto.
+- Site URL e Redirect URL su Supabase puntano già a questo indirizzo.
 - Le email di Supabase senza SMTP personalizzato non si possono modificare e contengono solo un link: per questo l'accesso consigliato è **con password**, che funziona anche dentro l'app installata su iPhone. L'email serve solo una volta, per confermare l'account.
 
 ## File
