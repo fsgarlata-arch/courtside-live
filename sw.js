@@ -1,5 +1,5 @@
 // Caches the app shell so the app opens instantly; live data always comes from Supabase.
-const CACHE = 'courtside-v2';
+const CACHE = 'courtside-v3';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
