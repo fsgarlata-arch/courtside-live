@@ -247,3 +247,18 @@ h2.sec::after { content: ""; flex: 1; height: 2px; background: var(--line); }
 .court * { fill: none; stroke: var(--court-line); stroke-width: 2px; vector-effect: non-scaling-stroke; }
 .court .paint { fill: var(--court-paint); }
 .court .dash { stroke-dasharray: 6 6; }
+
+/* formula a tempi, malus, correzione parziali */
+.gcard .unit { font-family: var(--f-num); font-weight: 600; font-size: 11px; letter-spacing: .06em; color: var(--muted); text-align: center; line-height: 1.2; }
+.board-label { text-align: center; font-family: var(--f-num); font-weight: 700; font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: var(--board-dim); margin-bottom: -6px; }
+.tally { display: flex; justify-content: center; align-items: baseline; gap: 6px 16px; flex-wrap: wrap; font-family: var(--f-num); font-weight: 600; font-size: 14px; letter-spacing: .1em; text-transform: uppercase; color: var(--board-dim); text-align: center; }
+.tally b { color: var(--board-fg); font-size: 20px; font-weight: 800; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+.tally span b { font-size: 16px; }
+.qtable td.won { color: var(--led); font-weight: 800; }
+.qtable sup.m { margin-left: 2px; font-size: 10px; font-weight: 800; color: var(--live); }
+.feed .tag.malus { background: var(--live); color: #fff; }
+.box.pp td { padding: 4px; }
+.box.pp th, .box.pp td { padding: 4px 3px; }
+.box.pp td:first-child { white-space: nowrap; max-width: 84px; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+.box.pp input { width: 2.8em; min-width: 0; text-align: center; background: var(--surface); border: 2px solid var(--line); border-radius: 8px; padding: 6px 2px; font-family: var(--f-num); font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; }
+.box.pp input:focus { border-color: var(--accent); outline: none; }

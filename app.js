@@ -25,7 +25,19 @@
     if (isNaN(d)) return iso;
     return d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · ' + d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
   };
-  const periodLabel = (q, n) => q <= n ? (n === 4 ? `${q}°Q` : `${q}°T`) : `OT${q - n > 1 ? q - n : ''}`;
+  // Formula di gara: quanti periodi e se vince chi fa più punti o chi vince più tempi.
+  const FORMATS = {
+    e4: { label: 'Esordienti · 4 tempi, vince chi vince più tempi', periods: 4, scoring: 'tempi' },
+    q4: { label: '4 quarti · vince chi fa più punti', periods: 4, scoring: 'punti' },
+    m6: { label: 'Minibasket · 6 tempi, vince chi vince più tempi', periods: 6, scoring: 'tempi' },
+    t2: { label: '2 tempi · vince chi fa più punti', periods: 2, scoring: 'punti' },
+  };
+  const MALUS_FROM = 6; // a tempi: dal 6° fallo di squadra nello stesso tempo scatta il malus
+  const teamFormat = t => FORMATS[t?.format] ? t.format : /esordient/i.test(t?.category || '') ? 'e4' : 'q4';
+  const formatOf = g => FORMATS[g.format] ? g.format : teamFormat(S.team);
+  const rules = g => FORMATS[formatOf(g)];
+  const periodLabel = (q, r) => q <= r.periods ? `${q}°${r.scoring === 'punti' && r.periods === 4 ? 'Q' : 'T'}` : `OT${q - r.periods > 1 ? q - r.periods : ''}`;
+  const formatOptions = sel => Object.entries(FORMATS).map(([k, f]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(f.label)}</option>`).join('');
   let toastT;
   const toast = msg => { const t = document.getElementById('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2800); };
   const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} } };
@@ -56,24 +68,45 @@
     const them = { name: g.opponent || 'Avversari', logo: g.oppLogo || '', color: g.oppColor || '#12204a' };
     return g.weAreHome !== false ? { home: us, away: them } : { home: them, away: us };
   }
+  // 'pt' = canestro, 'adj' = correzione manuale di un parziale: entrambi contano nel punteggio.
+  const isPts = e => e.k === 'pt' || e.k === 'adj';
   function score(g) {
     const ev = g.events || [];
     if (!ev.length && g.manual) return { home: +g.manual.home || 0, away: +g.manual.away || 0 };
     const s = { home: 0, away: 0 };
-    for (const e of ev) if (e.k === 'pt') s[e.s] += e.p;
+    for (const e of ev) if (isPts(e)) s[e.s] += e.p;
     return s;
   }
   function byPeriod(g) {
-    const n = Math.max(g.periods || 4, g.q || 1, ...(g.events || []).map(e => e.q));
+    const n = Math.max(rules(g).periods, g.q || 1, ...(g.events || []).map(e => e.q));
     const rows = { home: Array(n).fill(0), away: Array(n).fill(0) };
-    for (const e of g.events || []) if (e.k === 'pt') rows[e.s][e.q - 1] += e.p;
+    for (const e of g.events || []) if (isPts(e)) rows[e.s][e.q - 1] += e.p;
     return { n, rows };
   }
+  // Tempi vinti tra quelli conclusi; un tempo finito pari non lo vince nessuno.
+  function periodsWon(g) {
+    const { n, rows } = byPeriod(g), done = g.status === 'final' ? n : (g.q || 1) - 1;
+    const w = { home: 0, away: 0 };
+    for (let i = 0; i < Math.min(n, done); i++) {
+      if (rows.home[i] > rows.away[i]) w.home++;
+      else if (rows.away[i] > rows.home[i]) w.away++;
+    }
+    return w;
+  }
+  const byTempi = g => rules(g).scoring === 'tempi' && (g.events || []).length > 0;
+  // Il risultato da mostrare in grande: tempi vinti oppure punti.
+  const headline = g => byTempi(g) ? { ...periodsWon(g), unit: 'tempi' } : { ...score(g), unit: 'punti' };
+  function winner(g) {
+    if (byTempi(g)) { const t = periodsWon(g); if (t.home !== t.away) return t.home > t.away ? 'home' : 'away'; }
+    const s = score(g); // a tempi pari decidono i punti totali
+    return s.home === s.away ? null : s.home > s.away ? 'home' : 'away';
+  }
   const foulsIn = (g, side, q) => (g.events || []).filter(e => e.k === 'f' && e.s === side && e.q === q).length;
+  const malusIn = (g, side, q) => Math.max(0, foulsIn(g, side, q) - (MALUS_FROM - 1));
   function outcome(g) {
     if (g.status !== 'final') return null;
-    const s = score(g), usKey = g.weAreHome !== false ? 'home' : 'away', themKey = usKey === 'home' ? 'away' : 'home';
-    return s[usKey] > s[themKey] ? 'w' : s[usKey] < s[themKey] ? 'l' : 'd';
+    const w = winner(g), usKey = g.weAreHome !== false ? 'home' : 'away';
+    return !w ? 'd' : w === usKey ? 'w' : 'l';
   }
   const rosterOf = (g, side) => side === (g.weAreHome !== false ? 'home' : 'away') ? (g.ourRoster || S.team?.roster || []) : (g.oppRoster || []);
 
@@ -196,7 +229,8 @@
     }
   }
   const isEditingForm = () => ['team', 'new', 'edit', 'login'].includes(S.route.view);
-  function softRender() { if (!S.ready || isEditingForm()) return false; render(); return true; }
+  // Never redraw under someone typing: forms, or the partials table open on a game.
+  function softRender() { if (!S.ready || isEditingForm() || S.confirm === 'partials') return false; render(); return true; }
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible' || !S.teamRow) return;
@@ -312,15 +346,16 @@
   }
 
   function gameCard(g) {
-    const sd = sides(g), s = score(g), o = outcome(g);
+    const sd = sides(g), s = headline(g), pts = score(g), o = outcome(g);
     const hasScore = g.status !== 'scheduled' || g.manual;
-    const pill = g.status === 'live' ? `<span class="pill live">Live · ${periodLabel(g.q || 1, g.periods || 4)}</span>`
+    const pill = g.status === 'live' ? `<span class="pill live">Live · ${periodLabel(g.q || 1, rules(g))}</span>`
       : o ? `<span class="pill ${o}">${o === 'w' ? 'Vinta' : o === 'l' ? 'Persa' : 'Pari'}</span>`
       : `<span class="pill sch">In programma</span>`;
-    const lead = s.home === s.away ? '' : s.home > s.away ? 'home' : 'away';
+    const lead = g.status === 'final' ? (winner(g) || '') : s.home === s.away ? '' : s.home > s.away ? 'home' : 'away';
+    const unit = s.unit === 'tempi' ? `<span class="unit">tempi vinti · punti ${pts.home}–${pts.away}</span>` : '';
     return `<button class="gcard" type="button" data-open="${esc(g.id)}">
       <span class="side">${logoHTML(sd.home, 'm')}<span class="tname">${esc(sd.home.name)}</span></span>
-      <span class="center">${hasScore ? `<span class="sc"><span class="${lead === 'away' ? 'dim' : ''}">${s.home}</span><span class="dim">–</span><span class="${lead === 'home' ? 'dim' : ''}">${s.away}</span></span>` : `<span class="sc dim" style="font-size:20px">VS</span>`}${pill}</span>
+      <span class="center">${hasScore ? `<span class="sc"><span class="${lead === 'away' ? 'dim' : ''}">${s.home}</span><span class="dim">–</span><span class="${lead === 'home' ? 'dim' : ''}">${s.away}</span></span>${unit}` : `<span class="sc dim" style="font-size:20px">VS</span>`}${pill}</span>
       <span class="side r">${logoHTML(sd.away, 'm')}<span class="tname">${esc(sd.away.name)}</span></span>
       <span class="foot"><span>${esc(fmtDate(g.date))}</span><span>${esc([g.competition, g.venue].filter(Boolean).join(' · '))}</span></span>
     </button>`;
@@ -378,6 +413,8 @@
           <div class="field"><label for="teamCat">Categoria</label><input type="text" id="teamCat" value="${esc(t.category || '')}" placeholder="Es. Under 13"></div>
           <div class="field"><label for="teamSeason">Stagione</label><input type="text" id="teamSeason" value="${esc(t.season || '')}" placeholder="Es. 2026/27"></div>
         </div>
+        <div class="field"><label for="teamFormat">Formula delle partite</label><select id="teamFormat">${formatOptions(teamFormat(t))}</select>
+          <span class="hint">Vale per tutte le partite che non hanno una formula propria.</span></div>
         <div class="field"><label for="teamRoster">Roster (facoltativo)</label>
           <textarea id="teamRoster" placeholder="Un giocatore per riga: numero e nome&#10;4 Rossi Luca&#10;7 Bianchi Sara&#10;12 Verdi">${esc(rosterText(t.roster))}</textarea>
           <span class="hint">Verrà proposto in automatico in ogni nuova partita. Puoi lasciare solo i numeri o solo i nomi.</span>
@@ -402,9 +439,8 @@
   }
 
   function viewGameForm(g) {
-    const isNew = !g; g = g || { weAreHome: true, periods: 4 };
+    const isNew = !g; g = g || { weAreHome: true };
     const home = g.weAreHome !== false;
-    const hasEvents = (g.events || []).length > 0;
     return `
       <button class="back" ${isNew ? 'data-go="home"' : `data-open="${esc(g.id)}"`}>← Indietro</button>
       <form class="form panel" id="gameForm" data-id="${esc(g.id || '')}">
@@ -425,8 +461,8 @@
         </div>
         <div class="grid2">
           <div class="field"><label for="gDate">Data e ora</label><input type="datetime-local" id="gDate" value="${esc(toLocalInput(g.date))}"></div>
-          <div class="field"><label for="gPeriods">Periodi</label>
-            <select id="gPeriods">${[4, 6, 2].map(n => `<option value="${n}" ${+(g.periods || 4) === n ? 'selected' : ''}>${n === 4 ? '4 quarti' : n === 6 ? '6 tempi (minibasket)' : '2 tempi'}</option>`).join('')}</select>
+          <div class="field"><label for="gFormat">Formula</label>
+            <select id="gFormat">${formatOptions(formatOf(g))}</select>
           </div>
         </div>
         <div class="grid2">
@@ -439,15 +475,7 @@
           <div class="field"><label for="gOppRoster">Formazione avversari</label>
             <textarea id="gOppRoster" placeholder="Se li conosci: numero e nome&#10;5 Neri&#10;11">${esc(rosterText(g.oppRoster))}</textarea></div>
         </div>
-        <span class="hint">Le formazioni sono facoltative: senza, il segnapunti registra solo i punti di squadra.</span>
-        ${!hasEvents ? `
-        <details ${g.manual ? 'open' : ''}>
-          <summary class="lbl" style="cursor:pointer">Partita già giocata? Inserisci il risultato finale</summary>
-          <div class="grid2" style="margin-top:10px">
-            <div class="field"><label for="gManUs">Punti ${esc(S.team?.name || 'nostri')}</label><input type="number" min="0" id="gManUs" inputmode="numeric" value="${g.manual ? esc(home ? g.manual.home : g.manual.away) : ''}"></div>
-            <div class="field"><label for="gManThem">Punti avversari</label><input type="number" min="0" id="gManThem" inputmode="numeric" value="${g.manual ? esc(home ? g.manual.away : g.manual.home) : ''}"></div>
-          </div>
-        </details>` : ''}
+        <span class="hint">Le formazioni sono facoltative: senza, il segnapunti registra solo i punti di squadra. Per una partita già giocata, salvala e poi usa “Inserisci risultato” per scrivere i parziali di ogni tempo.</span>
         <div class="row end">
           ${!isNew ? `<button type="button" class="btn danger" data-del="${esc(g.id)}">Elimina</button>` : ''}
           <button class="btn" type="submit">${isNew ? 'Crea partita' : 'Salva'}</button>
@@ -457,34 +485,57 @@
   }
 
   function viewGame(g) {
-    const sd = sides(g), s = score(g), n = g.periods || 4, q = g.q || 1;
+    const sd = sides(g), pts = score(g), r = rules(g), q = g.q || 1;
     const { n: cols, rows } = byPeriod(g);
     const live = g.status === 'live', fin = g.status === 'final';
     const o = outcome(g);
-    const bonus = side => foulsIn(g, side, q) >= 4;
     const status = live ? `<span class="pill live">Live</span>` : fin ? `<span class="pill ${o}">Finale</span>` : `<span class="pill sch">In programma</span>`;
     const hasEvents = (g.events || []).length > 0;
-    const pcell = side => rows[side].map((v, i) => `<td class="${live && i === q - 1 ? 'cur' : ''}">${i < q || fin ? v : '–'}</td>`).join('');
+    const tempi = r.scoring === 'tempi' && hasEvents, won = periodsWon(g);
+    // A tempi: in diretta i numeri grandi sono i punti del tempo in corso, a fine gara i tempi vinti.
+    const s = tempi ? (live ? { home: rows.home[q - 1] || 0, away: rows.away[q - 1] || 0 } : won) : pts;
+    const fouls = side => {
+      const f = foulsIn(g, side, q);
+      if (r.scoring === 'tempi') {
+        const m = malusIn(g, side, q);
+        return `<div class="fouls ${m ? 'bonus' : ''}">Falli <b>${f}</b>${m ? ` · <b>MALUS${m > 1 ? ' ×' + m : ''}</b>` : ''}</div>`;
+      }
+      const b = f >= 4;
+      return `<div class="fouls ${b ? 'bonus' : ''}">Falli <b>${f}</b>${b ? ' · bonus' : ''}</div>`;
+    };
+    const anyMalus = r.scoring === 'tempi' && (g.events || []).some(e => e.k === 'f' && malusIn(g, e.s, e.q));
+    const pcell = side => rows[side].map((v, i) => {
+      const other = side === 'home' ? 'away' : 'home', done = fin || i < q - 1;
+      const w = tempi && done && v > rows[other][i], m = r.scoring === 'tempi' ? malusIn(g, side, i + 1) : 0;
+      return `<td class="${live && i === q - 1 ? 'cur' : ''}${w ? ' won' : ''}">${i < q || fin ? v : '–'}${m ? `<sup class="m">M${m > 1 ? m : ''}</sup>` : ''}</td>`;
+    }).join('');
+    const totals = side => tempi ? `<td class="tot">${won[side]}</td><td>${pts[side]}</td>` : `<td class="tot">${pts[side]}</td>`;
+    const tally = !tempi ? '' : live
+      ? `<div class="tally">Tempi vinti <b>${won.home} – ${won.away}</b><span>Punti totali <b>${pts.home} – ${pts.away}</b></span></div>`
+      : `<div class="tally">Punti totali <b>${pts.home} – ${pts.away}</b>${fin && won.home === won.away ? '<span>Tempi in parità: decidono i punti</span>' : ''}</div>`;
     return `
       <div class="row" style="justify-content:space-between"><button class="back" data-go="home">← Tutte le partite</button><button type="button" class="btn ghost sm" data-share-game="${esc(g.id)}">${SHARE_ICON} Condividi</button></div>
       <section class="board" aria-live="polite">
         <div class="top"><span>${esc(fmtDate(g.date))}</span>${status}</div>
         <div class="teams">
           <div class="team">${logoHTML(sd.home, 'l')}<div class="nm">${esc(sd.home.name)}</div><div class="tag">Casa</div></div>
-          <div class="period">${live || hasEvents ? `<div class="q">${esc(periodLabel(q, n))}</div><div class="ql">${fin ? 'Finita' : 'Periodo'}</div>` : `<div class="q">VS</div>`}</div>
+          <div class="period">${live || hasEvents ? `<div class="q">${esc(periodLabel(q, r))}</div><div class="ql">${fin ? 'Finita' : r.scoring === 'tempi' ? 'Tempo' : 'Periodo'}</div>` : `<div class="q">VS</div>`}</div>
           <div class="team">${logoHTML(sd.away, 'l')}<div class="nm">${esc(sd.away.name)}</div><div class="tag">Ospiti</div></div>
         </div>
+        ${tempi ? `<div class="board-label">${live ? `Punti nel ${esc(periodLabel(q, r))}` : 'Tempi vinti'}</div>` : ''}
         <div class="teams">
-          <div class="team"><div class="digits" id="dg-home">${s.home}</div>${live ? `<div class="fouls ${bonus('home') ? 'bonus' : ''}">Falli <b>${foulsIn(g, 'home', q)}</b>${bonus('home') ? ' · bonus' : ''}</div>` : ''}</div>
+          <div class="team"><div class="digits" id="dg-home">${s.home}</div>${live ? fouls('home') : ''}</div>
           <div></div>
-          <div class="team"><div class="digits" id="dg-away">${s.away}</div>${live ? `<div class="fouls ${bonus('away') ? 'bonus' : ''}">Falli <b>${foulsIn(g, 'away', q)}</b>${bonus('away') ? ' · bonus' : ''}</div>` : ''}</div>
+          <div class="team"><div class="digits" id="dg-away">${s.away}</div>${live ? fouls('away') : ''}</div>
         </div>
+        ${tally}
         ${hasEvents ? `<div class="scroll-x"><table class="qtable">
-          <thead><tr><th>Squadra</th>${Array.from({ length: cols }, (_, i) => `<th>${esc(periodLabel(i + 1, n))}</th>`).join('')}<th>Tot</th></tr></thead>
+          <thead><tr><th>Squadra</th>${Array.from({ length: cols }, (_, i) => `<th>${esc(periodLabel(i + 1, r))}</th>`).join('')}${tempi ? '<th>Tempi</th><th>Pt</th>' : '<th>Tot</th>'}</tr></thead>
           <tbody>
-            <tr><td>${esc(sd.home.name)}</td>${pcell('home')}<td class="tot">${s.home}</td></tr>
-            <tr><td>${esc(sd.away.name)}</td>${pcell('away')}<td class="tot">${s.away}</td></tr>
+            <tr><td>${esc(sd.home.name)}</td>${pcell('home')}${totals('home')}</tr>
+            <tr><td>${esc(sd.away.name)}</td>${pcell('away')}${totals('away')}</tr>
           </tbody></table></div>` : ''}
+        ${anyMalus ? `<div class="top" style="justify-content:center">M = malus, dal ${MALUS_FROM}° fallo di squadra nel tempo</div>` : ''}
         <div class="top" style="justify-content:center">${esc([g.competition, g.venue].filter(Boolean).join(' · '))}</div>
       </section>
       ${S.canEdit ? scorer(g) : ''}
@@ -495,14 +546,15 @@
   }
 
   function scorer(g) {
-    const sd = sides(g), n = g.periods || 4, q = g.q || 1;
+    const sd = sides(g), r = rules(g), n = r.periods, q = g.q || 1;
+    const editor = S.confirm === 'partials' ? partialsEditor(g) : '';
     if (g.status === 'scheduled') {
       return `<section class="panel"><h3>Segnapunti</h3>
-        <p class="hint" style="margin:0">Quando inizia la partita premi “Inizia diretta”: i genitori vedranno il punteggio aggiornarsi in tempo reale.</p>
-        <div class="ctlbar"><button class="btn" data-act="start">▶ Inizia diretta</button><button class="btn ghost" data-edit="${esc(g.id)}">Modifica partita</button></div></section>`;
+        <p class="hint" style="margin:0">Quando inizia la partita premi “Inizia diretta”: i genitori vedranno il punteggio aggiornarsi in tempo reale. Se è già stata giocata, usa “Inserisci risultato”.</p>
+        <div class="ctlbar"><button class="btn" data-act="start">▶ Inizia diretta</button><button class="btn ghost" data-act="partials">Inserisci risultato</button><button class="btn ghost" data-edit="${esc(g.id)}">Modifica partita</button></div></section>${editor}`;
     }
     if (g.status === 'final') {
-      return `<section class="panel"><h3>Segnapunti</h3><div class="ctlbar"><button class="btn ghost" data-act="reopen">Riapri diretta</button><button class="btn ghost" data-edit="${esc(g.id)}">Modifica partita</button></div></section>`;
+      return `<section class="panel"><h3>Segnapunti</h3><div class="ctlbar"><button class="btn ghost" data-act="partials">Correggi parziali</button><button class="btn ghost" data-act="reopen">Riapri diretta</button><button class="btn ghost" data-edit="${esc(g.id)}">Modifica partita</button></div></section>${editor}`;
     }
     const side = key => {
       const roster = rosterOf(g, key), sel = S.sel[key];
@@ -517,16 +569,39 @@
         </div>
       </div>`;
     };
-    const last = q >= n;
+    // A tempi non ci sono supplementari: dopo l'ultimo tempo resta solo "Fine partita".
+    const next = q < n ? `Passa al ${esc(periodLabel(q + 1, r))}` : r.scoring === 'punti' ? (q === n ? 'Supplementare' : 'Altro supplementare') : '';
+    const endScore = (() => {
+      if (r.scoring !== 'tempi') { const s = score(g); return `${s.home}–${s.away}`; }
+      const t = periodsWon({ ...g, status: 'final' });
+      return `${t.home}–${t.away} nei tempi vinti`;
+    })();
     return `<section class="stack">
-      <h2 class="sec">Segnapunti · ${esc(periodLabel(q, n))}</h2>
+      <h2 class="sec">Segnapunti · ${esc(periodLabel(q, r))}</h2>
       <div class="bench">${side('home')}${side('away')}</div>
       <div class="ctlbar">
         <button class="btn ghost" data-act="undo" ${(g.events || []).length ? '' : 'disabled'}>↶ Annulla ultima</button>
-        <button class="btn navy" data-act="next">${last ? (q === n ? 'Supplementare' : 'Altro supplementare') : `Passa al ${esc(periodLabel(q + 1, n))}`}</button>
+        ${next ? `<button class="btn navy" data-act="next">${next}</button>` : ''}
         <button class="btn" data-act="end">Fine partita</button>
       </div>
-      ${S.confirm === 'end' ? `<div class="confirm"><b>Chiudere la partita sul ${score(g).home}–${score(g).away}?</b><span class="hint">Il risultato diventerà definitivo. Potrai comunque riaprirla.</span><div class="row end"><button class="btn ghost sm" data-cancel>Annulla</button><button class="btn sm" data-act="end-yes">Sì, finale</button></div></div>` : ''}
+      <div class="ctlbar"><button class="btn ghost sm" data-act="partials">Correggi parziali</button></div>
+      ${S.confirm === 'end' ? `<div class="confirm"><b>Chiudere la partita sul ${endScore}?</b><span class="hint">Il risultato diventerà definitivo. Potrai comunque riaprirla.</span><div class="row end"><button class="btn ghost sm" data-cancel>Annulla</button><button class="btn sm" data-act="end-yes">Sì, finale</button></div></div>` : ''}
+    </section>${editor}`;
+  }
+
+  // Tabella con i punti di ogni tempo: chi la salva registra la differenza come correzione,
+  // così la cronaca dei canestri resta intatta e "Annulla ultima" funziona ancora.
+  function partialsEditor(g) {
+    const { n, rows } = byPeriod(g), sd = sides(g), r = rules(g), sch = g.status === 'scheduled';
+    const cells = side => rows[side].map((v, i) => `<td><input type="number" min="0" inputmode="numeric" id="pp-${side}-${i + 1}" value="${sch && !v ? '' : v}" aria-label="${esc(sd[side].name)}, ${esc(periodLabel(i + 1, r))}"></td>`).join('');
+    return `<section class="panel" id="partials">
+      <h3>${sch ? 'Inserisci risultato' : 'Correggi parziali'}</h3>
+      <p class="hint" style="margin:0">Scrivi i punti fatti in ogni ${r.scoring === 'tempi' ? 'tempo' : 'periodo'}. La cronaca non cambia: la differenza compare come correzione.</p>
+      <div class="scroll-x"><table class="box pp">
+        <thead><tr><th>Squadra</th>${Array.from({ length: n }, (_, i) => `<th>${esc(periodLabel(i + 1, r))}</th>`).join('')}</tr></thead>
+        <tbody><tr><td>${esc(sd.home.name)}</td>${cells('home')}</tr><tr><td>${esc(sd.away.name)}</td>${cells('away')}</tr></tbody>
+      </table></div>
+      <div class="row end"><button type="button" class="btn ghost sm" data-cancel>Annulla</button><button type="button" class="btn sm" data-act="partials-save">${sch ? 'Salva risultato finale' : 'Salva parziali'}</button></div>
     </section>`;
   }
 
@@ -553,13 +628,20 @@
   function feed(g, sd) {
     const ev = g.events || [];
     if (!ev.length) return '';
-    const n = g.periods || 4;
+    const r = rules(g), fouls = {};
     let h = 0, a = 0;
-    const withScore = ev.map(e => { if (e.k === 'pt') e.s === 'home' ? h += e.p : a += e.p; return { e, h, a }; }).reverse().slice(0, 80);
-    return `<section class="panel"><h3>Cronaca</h3><ul class="feed">${withScore.map(({ e, h, a }) => {
-      const who = e.pl ? `${e.pl.num ? '#' + esc(e.pl.num) + ' ' : ''}${esc(e.pl.name || '')}` : esc(sd[e.s].name);
-      const tag = e.k === 'f' ? `<span class="tag f">F</span>` : `<span class="tag ${e.p === 3 ? 'p3' : ''}">+${e.p}</span>`;
-      return `<li><span class="q">${esc(periodLabel(e.q, n))}</span><span>${tag}${who}${e.pl ? ` <span class="hint">· ${esc(sd[e.s].name)}</span>` : ''}</span><span class="s">${h}–${a}</span></li>`;
+    const withScore = ev.map(e => {
+      if (isPts(e)) e.s === 'home' ? h += e.p : a += e.p;
+      const nth = e.k === 'f' ? (fouls[e.s + e.q] = (fouls[e.s + e.q] || 0) + 1) : 0;
+      return { e, h, a, malus: r.scoring === 'tempi' && nth >= MALUS_FROM };
+    }).reverse().slice(0, 80);
+    return `<section class="panel"><h3>Cronaca</h3><ul class="feed">${withScore.map(({ e, h, a, malus }) => {
+      const who = e.k === 'adj' ? `Correzione parziale · ${esc(sd[e.s].name)}`
+        : e.pl ? `${e.pl.num ? '#' + esc(e.pl.num) + ' ' : ''}${esc(e.pl.name || '')}` : esc(sd[e.s].name);
+      const tag = e.k === 'f' ? `<span class="tag ${malus ? 'malus' : 'f'}">${malus ? 'MALUS' : 'F'}</span>`
+        : e.k === 'adj' ? `<span class="tag f">${e.p > 0 ? '+' : ''}${e.p}</span>`
+        : `<span class="tag ${e.p === 3 ? 'p3' : ''}">+${e.p}</span>`;
+      return `<li><span class="q">${esc(periodLabel(e.q, r))}</span><span>${tag}${who}${e.pl ? ` <span class="hint">· ${esc(sd[e.s].name)}</span>` : ''}</span><span class="s">${h}–${a}</span></li>`;
     }).join('')}</ul>${ev.length > 80 ? `<span class="hint">Mostrate le ultime 80 azioni.</span>` : ''}</section>`;
   }
 
@@ -583,6 +665,8 @@
     });
     S.sel[key] = null; render();
     if (kind === 'pt') document.getElementById('dg-' + key)?.classList.add('flash');
+    const g = gameById(id);
+    if (kind === 'f' && g && rules(g).scoring === 'tempi' && malusIn(g, key, g.q || 1)) toast(`Malus per ${sides(g)[key].name}: ${foulsIn(g, key, g.q || 1)}° fallo nel tempo`);
     try { navigator.vibrate?.(15); } catch {}
   }
   async function deleteGame(id) {
@@ -642,6 +726,23 @@
       if (d.act === 'next') mutate(id, g => { g.q = (g.q || 1) + 1; });
       if (d.act === 'end') { S.confirm = 'end'; render(); }
       if (d.act === 'end-yes') { S.confirm = null; mutate(id, g => { g.status = 'final'; }); wake(false); toast('Partita chiusa'); }
+      if (d.act === 'partials') { S.confirm = 'partials'; render(); document.getElementById('partials')?.scrollIntoView({ block: 'center' }); }
+      if (d.act === 'partials-save') {
+        const before = gameById(id), sch = before?.status === 'scheduled';
+        mutate(id, g => {
+          const { n, rows } = byPeriod(g);
+          g.events = g.events || [];
+          for (const side of ['home', 'away']) for (let i = 0; i < n; i++) {
+            const raw = document.getElementById(`pp-${side}-${i + 1}`)?.value.trim();
+            if (!raw || isNaN(+raw)) continue;
+            const delta = Math.max(0, Math.round(+raw)) - rows[side][i];
+            if (delta) g.events.push({ id: uid(), s: side, k: 'adj', p: delta, q: i + 1, pl: null, t: Date.now() });
+          }
+          if (g.status === 'scheduled') { g.status = 'final'; g.q = n; delete g.manual; }
+        });
+        S.confirm = null; render();
+        toast(sch ? 'Risultato salvato' : 'Parziali aggiornati');
+      }
     }
   });
 
@@ -812,7 +913,7 @@
       if (f.id === 'teamForm') {
         const data = {
           name: v('teamName') || 'La mia squadra', category: v('teamCat'), season: v('teamSeason'),
-          color: v('teamColor'), roster: parseRoster(v('teamRoster')),
+          color: v('teamColor'), roster: parseRoster(v('teamRoster')), format: v('teamFormat'),
           logo: pendingTeamLogo !== null ? pendingTeamLogo : (S.team?.logo || ''),
         };
         if (!S.teamRow) {
@@ -840,16 +941,12 @@
           ...prev, id,
           weAreHome: home, opponent: v('gOpp'), oppColor: v('gOppColor'),
           oppLogo: pendingOppLogo !== null ? pendingOppLogo : (prev.oppLogo || ''),
-          date: dt ? new Date(dt).toISOString() : '', periods: +v('gPeriods') || 4,
+          date: dt ? new Date(dt).toISOString() : '',
+          format: FORMATS[v('gFormat')] ? v('gFormat') : teamFormat(S.team), periods: FORMATS[v('gFormat')]?.periods || 4,
           competition: v('gComp'), venue: v('gVenue'),
           ourRoster: parseRoster(v('gOurRoster')), oppRoster: parseRoster(v('gOppRoster')),
         };
         pendingOppLogo = null;
-        const us = v('gManUs'), them = v('gManThem');
-        if (!(g.events || []).length && us !== '' && them !== '') {
-          g.manual = home ? { home: +us, away: +them } : { home: +them, away: +us };
-          g.status = 'final';
-        } else if (!(g.events || []).length) { delete g.manual; if (g.status === 'final') g.status = 'scheduled'; }
         if (!gameById(id)) S.games.push(g); else Object.assign(gameById(id), g);
         saveGame(g);
         toast(f.dataset.id ? 'Partita aggiornata' : 'Partita creata');
